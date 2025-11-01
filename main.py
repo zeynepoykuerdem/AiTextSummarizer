@@ -1,31 +1,91 @@
 import sys
 import os
-from openai import OpenAI
+from google import genai
 import fitz as pymudpf
-
+from dotenv import load_dotenv
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QFileDialog
+    QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QFileDialog, QScrollArea
 )
+load_dotenv() #reads .env file
+genai.api_key = os.getenv("GENAI_API_KEY")
 class MyApp(QWidget):
     def __init__(self):
         '''
-        Initialiying the main window of the application
+        Initializing the main window of the application
         '''
         super().__init__()
-        self.setWindowTitle('My AI Text Summarizer App')
-        self.setGeometry(100, 100, 400, 300)
+        # Main window setup
+        self.setWindowTitle('PDF Summarizer')
+        self.setGeometry(100, 100, 600, 800)  # Taller window for better scroll area
         
-        # Adding a layout 
-        self.layout = QVBoxLayout()
+        # Main layout
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setSpacing(15)
+        self.main_layout.setContentsMargins(20, 20, 20, 20)
 
-        self.button = QPushButton('Summarize Text', self)
+       # Simple header
+        self.header = QLabel('PDF Summarizer')
+        self.header.setStyleSheet("""
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px;
+        """)
+        self.header.setAlignment(Qt.AlignCenter)
+        self.main_layout.addWidget(self.header)
 
-        self.label = QLabel('Click the button to summarize text.', self)
-    
-        self.layout.addWidget(self.label)
-        self.layout.addWidget(self.button)
-        self.setLayout(self.layout) # Applying the layout to the main window
+
+         # Simple upload button
+        self.button = QPushButton('Choose PDF File')
+        self.button.setStyleSheet("""
+            QPushButton {
+                padding: 10px;
+                font-size: 16px;
+                margin: 10px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.main_layout.addWidget(self.button)
+
+        # Scroll area for summary
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet("QScrollArea { border: none; }")
+
+        # Content widget for scroll area
+        self.content = QWidget()
+        self.scroll_layout = QVBoxLayout(self.content)
+
+        # Result label
+        self.result_label= QLabel()
+        self.result_label.setWordWrap(True)
+        self.result_label.setStyleSheet("""
+            QLabel {
+                padding: 15px;
+                font-size: 14px;
+                line-height: 1.5;
+                background-color: black;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+            }
+        """)
+        self.scroll_layout.addWidget(self.result_label)
+        
+        self.scroll.setWidget(self.content)
+        self.main_layout.addWidget(self.scroll)
+ 
+          # Set the main layout
+        self.setLayout(self.main_layout)
+        
+        # Connect button
         self.button.clicked.connect(self.on_summarize_button_click)
+
 
     def on_summarize_button_click(self):
         """
@@ -61,39 +121,36 @@ class MyApp(QWidget):
         """
         try:
             doc = pymudpf.open(file_path)
-            text = []
+            text = ""
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
                 text += page.get_text()
             return text
         except Exception as e:
             print(f"Error extracting text from PDF: {e}")
-            return []
+            return ""
         
     def openai_summarize(self, doc_text):
         """
         @ param text: Text to be summarized
         """
         try:
-            openai_agent= OpenAI()
+            genai_agent= genai.Client() # Create a client object to interact with the OpenAI API
             # prompt expect an object not a string
             # thats why we are getting an error -> chat.completions.create()
-            prompt= f"Analyze the follwing text and provide a concise summary.:n\n{doc_text}\n\n"
+            file=doc_text
+            #Client object has not attribute chat
+            response=genai_agent.models.generate_content(
+                model = "gemini-2.5-flash",
+                #Error during OpenAI summarization: can only concatenate str (not "list") to str
+                contents= ["Could you summarize the following text:\n" + file]
 
-            response=openai_agent.chat.completions.create(
-                model = "gpt-5",
-
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that summarizes text documents."}
-                    
-                    ,{"role": "user", "content": f" Please provide a concise summary of this text {prompt}"}
-
-                ]
+            
             )
             # output_text does not exist in response object
-            summary=response.choices[0].message.content
-            self.label.setText("Summary:\n" + summary)
-            self.label.setText("Summary printed to console.")
+            summary=response.text
+            display_text= summary if len(summary) < 500 else summary[:500] + "..."
+            self.result_label.setText(display_text) # result label a ekliyorum
 
         except Exception as e:
             print(f"Error during OpenAI summarization: {e}")    
